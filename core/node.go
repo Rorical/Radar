@@ -161,9 +161,12 @@ func NewP2P(bootnodes []string, path string) (*Node, error) {
 					dht.BootstrapPeers(getBootstrapPeers(bootnodes)...),
 					dht.BucketSize(20),
 					dht.Concurrency(10),
-					dht.NamespacedValidator("ipns", vd),
+					dht.Validator(vd),
 				),
 			)
+			if err != nil {
+				panic(err)
+			}
 			return idht, err
 		}),
 		libp2p.EnableAutoRelay(),
