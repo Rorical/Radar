@@ -1,29 +1,25 @@
 package core
 
 import (
-	"Radar/core/validator"
+	"Radar/core/wstore"
 	"context"
 	"fmt"
+	"github.com/ipfs/go-datastore"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-kad-dht/fullrt"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/routing"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
-	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoreds"
 	routedhost "github.com/libp2p/go-libp2p/p2p/host/routed"
 	"github.com/libp2p/go-libp2p/p2p/muxer/mplex"
 	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
-	"time"
-
-	dbstore "github.com/ipfs/go-ds-leveldb"
-	dht "github.com/libp2p/go-libp2p-kad-dht"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/routing"
 )
 
 type Info map[string]interface{}
@@ -49,10 +45,10 @@ func initMDNS(peerhost host.Host, rendezvous string) chan peer.AddrInfo {
 
 type Node struct {
 	Host      host.Host
-	Router    *fullrt.FullRT
+	Router    *dht.IpfsDHT
 	ctx       context.Context
 	Cancel    context.CancelFunc
-	Store     *dbstore.Datastore
+	Store     datastore.Batching
 	PubSub    *pubsub.PubSub
 	Discovery *drouting.RoutingDiscovery
 }
@@ -95,13 +91,10 @@ func (n *Node) initPubSub() (*pubsub.PubSub, error) {
 }
 
 func (n *Node) watchDHT() {
-	_, eveChan := dht.RegisterForLookupEvents(n.ctx)
-	for event := range eveChan {
-		fmt.Println(event.Key.Key)
-	}
+
 }
 
-func NewP2P(bootnodes []string, path string) (*Node, error) {
+func NewP2P(bootnodes []string) (*Node, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	priv, _, err := crypto.GenerateKeyPair(
@@ -113,32 +106,22 @@ func NewP2P(bootnodes []string, path string) (*Node, error) {
 		return nil, err
 	}
 
-	var idht *fullrt.FullRT
-
 	connmgr, err := connmgr.NewConnManager(
 		500,  // Lowwater
 		2000, // HighWater,
-		connmgr.WithGracePeriod(time.Minute),
 	)
 
 	if err != nil {
 		return nil, err
 	}
 
-	store, err := dbstore.NewDatastore(path, nil)
+	wrappedstore := wstore.NewStore()
 
 	if err != nil {
 		return nil, err
 	}
 
-	pstore, err := pstoreds.NewPeerstore(ctx, store, pstoreds.Options{
-		CacheSize: 2000,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	vd := validator.Validator{}
+	var idht *dht.IpfsDHT
 
 	h, err := libp2p.New(
 		libp2p.Identity(priv),
@@ -153,27 +136,18 @@ func NewP2P(bootnodes []string, path string) (*Node, error) {
 		libp2p.ConnectionManager(connmgr),
 		libp2p.NATPortMap(),
 		libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
-			idht, err = fullrt.NewFullRT(h,
-				dht.DefaultPrefix,
-				fullrt.DHTOption(
-					dht.Datastore(store),
-					dht.Mode(dht.ModeAutoServer),
-					dht.BootstrapPeers(getBootstrapPeers(bootnodes)...),
-					dht.BucketSize(20),
-					dht.Concurrency(10),
-					dht.Validator(vd),
-				),
+			idht, err = dht.New(context.Background(), h,
+				dht.Mode(dht.ModeAuto),
+				dht.BootstrapPeers(getBootstrapPeers(bootnodes)...),
+				dht.Datastore(wrappedstore),
 			)
 			if err != nil {
 				panic(err)
 			}
 			return idht, err
 		}),
-		libp2p.EnableAutoRelay(),
 		libp2p.EnableNATService(),
-		libp2p.EnableRelay(),
 		libp2p.EnableHolePunching(),
-		libp2p.Peerstore(pstore),
 	)
 
 	node := &Node{
@@ -181,7 +155,7 @@ func NewP2P(bootnodes []string, path string) (*Node, error) {
 		Router:    idht,
 		ctx:       ctx,
 		Cancel:    cancel,
-		Store:     store,
+		Store:     wrappedstore,
 		Discovery: drouting.NewRoutingDiscovery(idht),
 	}
 
@@ -191,7 +165,6 @@ func NewP2P(bootnodes []string, path string) (*Node, error) {
 	}
 
 	//go node.discoveryMdns()
-	//go node.watchDHT()
 
 	//pubsub, err := node.initPubSub()
 	//if err != nil {

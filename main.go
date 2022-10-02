@@ -2,16 +2,13 @@ package main
 
 import (
 	"Radar/core"
-	logging "github.com/ipfs/go-log"
+	"fmt"
+	"time"
 )
 
 func main() {
-	err := logging.SetLogLevelRegex(".*", "Debug")
-	if err != nil {
-		panic(err)
-	}
+	//logging.SetLogLevelRegex("dht", "Debug")
 
-	path := "./data"
 	bootnodes := []string{
 		"/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN",
 		"/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa",
@@ -21,23 +18,21 @@ func main() {
 		"/ip4/104.131.131.82/udp/4001/quic/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ",
 	}
 
-	_, err = core.NewP2P(bootnodes, path)
+	node, err := core.NewP2P(bootnodes)
 	if err != nil {
 		panic(err)
 	}
 
-	/*
-		t := time.NewTicker(60 * time.Second)
-		defer t.Stop()
-		go func() {
-			for {
-				<-t.C
+	t := time.NewTicker(60 * time.Second)
+	defer t.Stop()
+	go func() {
+		for {
+			<-t.C
 
-				prs := len(node.Host.Network().Peers())
-				fmt.Println("Connected Number:", prs)
-			}
-		}()
-	*/
+			prs := len(node.Host.Network().Peers())
+			fmt.Println("Connected Number:", prs)
+		}
+	}()
 
 	select {}
 }
