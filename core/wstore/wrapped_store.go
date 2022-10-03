@@ -14,15 +14,18 @@ type WrappedStore struct {
 }
 
 func getInfo(key datastore.Key) {
-	cid, err := utils.DecodeB32Cid(key.List()[1])
-	if err != nil {
-		panic(err)
+	fmt.Println(key.List())
+	if len(key.List()) < 2 {
+		return
 	}
-	fmt.Println("Detected Key:", cid)
+	cid, err := utils.DecodeB32Cid(key.List()[1])
+	if err == nil {
+		fmt.Println("Detected Key1:", cid)
+	}
 }
 
 func NewStore() *WrappedStore {
-	db := dssync.MutexWrap(datastore.NewMapDatastore())
+	db := dssync.MutexWrap(datastore.NewNullDatastore())
 	return &WrappedStore{DB: db}
 }
 
@@ -42,6 +45,7 @@ func (ws *WrappedStore) GetSize(ctx context.Context, key datastore.Key) (size in
 }
 
 func (ws *WrappedStore) Query(ctx context.Context, q query.Query) (query.Results, error) {
+	getInfo(datastore.NewKey(q.Prefix))
 	return ws.DB.Query(ctx, q)
 }
 
@@ -56,6 +60,7 @@ func (ws *WrappedStore) Delete(ctx context.Context, key datastore.Key) error {
 }
 
 func (ws *WrappedStore) Sync(ctx context.Context, prefix datastore.Key) error {
+	fmt.Println(prefix)
 	return ws.DB.Sync(ctx, prefix)
 }
 
